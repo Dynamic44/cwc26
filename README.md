@@ -1,24 +1,109 @@
-<!-- Copyright 2026 Anthropic PBC -->
-<!-- SPDX-License-Identifier: Apache-2.0 -->
+# Deal Desk — a Claude Managed Agents workshop
 
-# cwc-workshops
+Workshop sample code. Not maintained and not accepting contributions.
 
-Workshop materials. Not maintained and not accepting contributions.
+A chat-first UI over a multi-agent M&A research team, built on the Claude
+Managed Agents API. A coordinator agent delegates to four research sub-agents
+in parallel, reads prior-deal lessons from a memory store, can reach Linear
+via MCP + Vault, and emits a graded investment thesis. The UI streams every
+event, lets you confirm gated tool calls, define outcomes inline, and tab
+into each sub-agent's thread.
 
-Materials from Anthropic-run **Code with Claude** workshops.
+All companies and financials are fictitious.
 
-## Workshops
+## Repo layout
 
-- [`rightmodel/`](./rightmodel) — *Picking the Right Model*: use a Claude Code SKILL to audit an LLM eval suite and sweep it across models and inference parameters (extended thinking, effort) to find the best quality-per-dollar and quality-per-second configuration.
-- [`agent-decomposition/`](./agent-decomposition) — *Compose Multi-Agent Systems with Skills and MCP*: decompose a 400-line-prompt inventory agent into skills + code execution + callable_agents on Claude Managed Agents, with evals to verify each step.
-- [`how-we-claude-code/`](./how-we-claude-code) — *How We Claude Code*: a three-phase walkthrough of an AI-assisted product workflow — interview to spec, four divergent design explorations as static HTML, and a Vite + React app whose components emit a machine-readable DOM contract so an agent (or CI) can verify them at runtime.
-- [`ship-your-first-managed-agent/`](./ship-your-first-managed-agent) — *Ship Your First Managed Agent*: a Streamlit incident dashboard with an offline SRE Agent chat panel. You bring it online by implementing seven small functions in `agent.py`, each a single Claude Managed Agents API call — until it can grep a 70k-line log in its sandbox, call your local tools, and name the bad commit.
-- [`agent-battle/`](./agent-battle) — *Agent Battle*: a 45-minute competition to configure a Claude Managed Agent — system prompt, skills, MCP servers, model — that drives a local game bot over MCP. Most diamonds wins, fewest tokens breaks ties; a fast `--eval` decision-probe loop lets you test config changes in ~30s before committing to a 5-minute run.
-- [`agents-that-remember/`](./agents-that-remember) — *Agents That Remember*: start with a Managed Agent that's visibly amnesiac across sessions, then layer in memory primitives one at a time — a memory store for cross-session persistence, then the Dreaming Service to consolidate past transcripts — going "goldfish to colleague" in 45 minutes.
-- [`eval-driven-agent-development/`](./eval-driven-agent-development) — *Eval-Driven Agent Development*: iterate a PPTX-generating Managed Agent through six variants (naive → visual → typography → palette → density → QA-loop), scoring each against a 10-task suite with a two-layer grader (programmatic `.pptx` XML metrics + LLM-as-judge on rendered slides) so every prompt change is measured, not vibed.
-- [`production-ready-agent/`](./production-ready-agent) — *Deal Desk*: a chat-first UI over a multi-agent M&A research team on Claude Managed Agents — a coordinator delegates to four parallel research sub-agents, reads prior-deal lessons from a memory store, reaches Linear via MCP, and emits a graded investment thesis while the UI streams every event and gated tool call.
-- [`research-desk/`](./research-desk) — *The Research Desk*: build an SEC-filings research desk on Claude Managed Agents behind a self-hosted Next.js console — say hello to a bare agent you wire up yourself, then promote that same agent (versioned update) into a head of research that dispatches one analyst session per ticker through a custom tool your server fulfils, with sub-agent specialists, an edgartools Skill, outcome-graded scorecards, a shared memory store, and a weekly memo deployment.
+```
+starter/      The app you build during the workshop. The UI, event reducer,
+              and provisioning are done — the API route handlers are stubbed
+              with TODOs. Start here.
+solution/     The finished reference. Diff against starter/ when stuck.
+seed/         Shared workshop assets: agent configs, sandbox env, memory
+              entries, fictional target CSVs, the outcome rubric.
+bin/          Idempotent provisioning scripts that hit the Managed Agents API
+              once and write IDs into .env. Both apps read the same .env.
+```
 
-## License
+`starter/` and `solution/` are identical Next.js apps; the only difference is
+whether the route handlers in `app/api/` are filled in. Diff them any time:
 
-Apache License 2.0. See [LICENSE](./LICENSE).
+```bash
+diff -ru starter/app/api solution/app/api
+```
+
+## Prerequisites
+
+- An Anthropic API key with the Managed Agents beta enabled
+- The [`ant` CLI](https://platform.claude.com/docs/en/managed-agents/quickstart):
+  `brew install anthropics/tap/ant` on macOS, or see the
+  [quickstart](https://platform.claude.com/docs/en/managed-agents/quickstart)
+  for Linux and other platforms
+- [bun](https://bun.sh) and `jq`
+
+## Setup
+
+Provision once — both apps share the resources:
+
+```bash
+cp .env.example .env
+# Fill in ANTHROPIC_API_KEY.
+
+./bin/setup.sh               # provisions environment, sub-agents, coordinator
+                             # (v1, no roster), memory store, files; writes
+                             # the IDs back into .env and copies it into each app
+./bin/enable-multiagent.sh   # adds the sub-agent roster to the coordinator → v2
+                             # (you'll run this mid-workshop, but it's safe now)
+
+cd starter && bun install
+```
+
+`setup.sh` is idempotent — re-running reuses existing IDs instead of creating
+duplicates. The coordinator is the exception: it is recreated fresh at v1 each
+time, because `agents.update` cannot remove an existing `multiagent` block.
+Sessions always use the latest agent version, so once `enable-multiagent.sh`
+has run, new sessions get the sub-agent roster.
+
+## Run
+
+```bash
+cd starter && bun dev
+# open http://localhost:3000
+```
+
+Each app reads its own `.env` (synced from the repo-root `.env` by `setup.sh`).
+`lib/anthropic.ts` reads the file directly so a shell-exported
+`ANTHROPIC_API_KEY` won't shadow it.
+
+## What you'll build
+
+`starter/README.md` walks the seven exercises. In short:
+
+| TODO | File | API surface |
+| --- | --- | --- |
+| 1. List sessions | `app/api/sessions/route.ts` | `sessions.list` |
+| 2. Create a session | `app/api/sessions/route.ts` | `sessions.create` — agent, environment, resource mounts, vault |
+| 3. Send messages and outcomes | `app/api/steer/[id]/route.ts` | `sessions.events.send` — `user.message`, `user.define_outcome` |
+| 4. Retrieve a session | `app/api/session/[id]/route.ts` | `sessions.retrieve` |
+| 5. Bridge the event stream | `app/api/stream/[id]/route.ts` | `sessions.events.list` + `sessions.events.stream` → SSE |
+| 6. Confirm gated tool calls | `app/api/confirm/[id]/route.ts` | `sessions.events.send` — `user.tool_confirmation` |
+| 7. Delete a session | `app/api/session/[id]/route.ts` | `sessions.delete` |
+
+Already done for you and worth reading:
+
+| Feature | Where |
+| --- | --- |
+| Per-thread event streams | `app/api/stream/[id]/thread/[threadId]/route.ts` |
+| List sub-agent threads (`threads.list`) | `app/api/session/[id]/threads/route.ts` |
+| SSE encoder / dedup / error bridge | `lib/sse.ts` |
+| Event → chat message reducer | `lib/chat.ts` |
+| Agent + sub-agent definitions | `seed/agents/*.yaml` |
+| Sandbox config | `seed/environments/research.yaml` |
+| UI | `components/ChatPanel.tsx`, `SessionRail.tsx`, `ai/*` |
+
+## Optional: MCP + Vault via Linear
+
+The coordinator can read open diligence issues from Linear over MCP, with the
+end-user's Linear token held in a Vault. To exercise it, fill `LINEAR_API_KEY`
+and `LINEAR_TEAM_ID` in `.env`, run `./bin/seed-linear.sh` to create some
+fictional diligence issues, and create a Vault holding the same token. Set
+`VAULT_ID` and toggle "MCP" on in the New Session modal.
